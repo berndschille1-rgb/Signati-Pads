@@ -22,6 +22,9 @@ def load_data():
             # Ensure proper date formatting
             if "Einbaudatum" in df.columns:
                 df["Einbaudatum"] = pd.to_datetime(df["Einbaudatum"]).dt.date
+            # Ensure Anzahl column exists
+            if "Anzahl" not in df.columns:
+                df["Anzahl"] = 1
             return df
         except Exception as e:
             st.error(f"Fehler beim Laden der Daten: {e}")
@@ -44,7 +47,8 @@ def create_empty_df():
         "Backplate_Laser_mm",
         "Dicke_mm",
         "Material_Top",
-        "Material_Back"
+        "Material_Back",
+        "Anzahl"
     ])
 
 # Save data helper
@@ -55,8 +59,8 @@ def save_data(df):
         st.error(f"Fehler beim Speichern der Daten: {e}")
 
 # Main App Title
-st.title("🎷 Klarinetten-Polster App v3")
-st.markdown("Erfasse beliebig viele Polster nacheinander für einen Kunden – optimiert für einfache Smartphone-Bedienung.")
+st.title("🎷 Klarinetten-Polster App v4")
+st.markdown("Erfasse beliebig viele Polster nacheinander mit Stückzahl für einen Kunden – optimiert für einfache Smartphone-Bedienung.")
 
 # Initialize session state for current order list if not present
 if "current_order_pads" not in st.session_state:
@@ -90,7 +94,7 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
 
     st.divider()
     st.subheader("2. Polster nacheinander hinzufügen")
-    st.markdown("Gib die Maße des Polsters ein und tippe auf den Button unten, um es der Liste für diesen Kunden hinzuzufügen.")
+    st.markdown("Gib die Maße, Stärke und die **Stückzahl** des Polsters ein.")
     
     # Simple form inputs for one pad at a time (extremely reliable on mobile!)
     col3, col4, col5 = st.columns(3)
@@ -120,7 +124,7 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
             key="input_dicke"
         )
 
-    col6, col7 = st.columns(2)
+    col6, col7, col8 = st.columns(3)
     with col6:
         material_top = st.selectbox(
             "Material Top Layer", 
@@ -137,14 +141,24 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
         )
         if material_back == "Andere":
             material_back = st.text_input("Anderes Back-Material", placeholder="z. B. Holz", key="custom_material_back")
+    with col8:
+        anzahl = st.number_input(
+            "Anzahl (Stück)",
+            min_value=1,
+            max_value=100,
+            value=1,
+            step=1,
+            key="input_anzahl",
+            help="Wie viele Polster mit diesen exakten Maßen werden benötigt?"
+        )
 
     # Real-time calculation preview for the single pad
     top_laser = round(top_soll + kerf, 2) if top_soll > 0 else 0.0
     back_laser = round(back_soll + kerf, 2) if back_soll > 0 else 0.0
 
     st.markdown(
-        f"📏 **Vorschau für dieses Polster:** "
-        f"Laser Top: **`{top_laser} mm`** | Laser Backplate: **`{back_laser} mm`**"
+        f"📐 **Vorschau für dieses Polster:** "
+        f"Laser Top: **`{top_laser} mm`** | Laser Backplate: **`{back_laser} mm`** | Stückzahl: **`{anzahl}x`**"
     )
 
     # Button to add this single pad to the list
@@ -159,15 +173,16 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
                 "Material_Top": material_top,
                 "Material_Back": material_back,
                 "Top_Laser_mm": top_laser,
-                "Back_Laser_mm": back_laser
+                "Back_Laser_mm": back_laser,
+                "Anzahl": int(anzahl)
             }
             st.session_state.current_order_pads.append(new_pad)
-            st.toast(f"Polster {top_soll}mm / {back_soll}mm hinzugefügt!", icon="✅")
+            st.toast(f"{anzahl}x Polster {top_soll}mm / {back_soll}mm hinzugefügt!", icon="✅")
 
     # --- SECTION 1B: CURRENT ORDER LIST ---
     if st.session_state.current_order_pads:
         st.divider()
-        st.subheader(f"📋 Hinzugefügte Polster für diesen Auftrag ({len(st.session_state.current_order_pads)})")
+        st.subheader(f"📋 Hinzugefügte Polster für diesen Auftrag ({sum(pad['Anzahl'] for pad in st.session_state.current_order_pads)} Polster gesamt)")
         
         # Display as a clean, read-only table for review
         order_df = pd.DataFrame(st.session_state.current_order_pads)
@@ -179,7 +194,8 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
             "Material_Top": "Material Top",
             "Material_Back": "Material Back",
             "Top_Laser_mm": "📐 Top Laser (mm)",
-            "Back_Laser_mm": "📐 Backplate Laser (mm)"
+            "Back_Laser_mm": "📐 Backplate Laser (mm)",
+            "Anzahl": "Anzahl (Stück)"
         })
         st.dataframe(display_order_df, use_container_width=True)
 
@@ -207,7 +223,8 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
                         "Backplate_Laser_mm": pad["Back_Laser_mm"],
                         "Dicke_mm": pad["Dicke_mm"],
                         "Material_Top": pad["Material_Top"],
-                        "Material_Back": pad["Material_Back"]
+                        "Material_Back": pad["Material_Back"],
+                        "Anzahl": int(pad["Anzahl"])
                     })
                 
                 df_new = pd.concat([df_current, pd.DataFrame(records_to_add)], ignore_index=True)
@@ -215,7 +232,7 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
                 
                 # Clear order list
                 st.session_state.current_order_pads = []
-                st.success(f"🎉 Erfolgreich {len(records_to_add)} Polster für {kunde if kunde else 'Unbekannt'} gespeichert!")
+                st.success(f"🎉 Erfolgreich {len(records_to_add)} Polstertypen mit insgesamt {sum(r['Anzahl'] for r in records_to_add)} Stück für {kunde if kunde else 'Unbekannt'} gespeichert!")
                 st.rerun()
 
 # --- SECTION 2: VIEW AND EDIT DATABASE ---
@@ -251,10 +268,14 @@ else:
     # Dynamic Data Editor for managing historical data
     st.markdown("💡 *Du kannst Werte in der Datenbank-Tabelle direkt antippen, um sie nachträglich zu editieren. Um eine Zeile zu löschen, markiere sie links und drücke 'Entf' (oder nutze das Mülleimer-Symbol). Vergiss nicht, danach auf 'Änderungen in Tabelle speichern' zu klicken.*")
     
+    # Configure columns for database data editor
     edited_df = st.data_editor(
         filtered_df,
         num_rows="dynamic",
         use_container_width=True,
+        column_config={
+            "Anzahl": st.column_config.NumberColumn("Anzahl", min_value=1, max_value=500, step=1, format="%d")
+        },
         key="database_editor_widget"
     )
 
