@@ -55,12 +55,16 @@ def save_data(df):
         st.error(f"Fehler beim Speichern der Daten: {e}")
 
 # Main App Title
-st.title("🎷 Klarinetten-Polster App v2")
-st.markdown("Erfasse mehrere Polster-Größen gleichzeitig für einen Kunden – optimiert für dein Smartphone.")
+st.title("🎷 Klarinetten-Polster App v3")
+st.markdown("Erfasse beliebig viele Polster nacheinander für einen Kunden – optimiert für einfache Smartphone-Bedienung.")
 
-# --- SECTION 1: ADD NEW ENTRY (MULTIPLE PADS) ---
+# Initialize session state for current order list if not present
+if "current_order_pads" not in st.session_state:
+    st.session_state.current_order_pads = []
+
+# --- SECTION 1: ADD NEW ENTRY (ULTRA MOBILE FRIENDLY) ---
 with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
-    st.subheader("1. Kundendaten & Instrument")
+    st.subheader("1. Kundendaten & Globaler Laser-Kerf")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -69,115 +73,158 @@ with st.expander("➕ Neuen Auftrag (mehrere Polster) erfassen", expanded=True):
             "Instrumenten-Typ",
             ["Bb/A-Klarinette", "Es-Klarinette", "Bass-Klarinette"]
         )
+        einbaudatum = st.date_input("Einbaudatum", date.today())
     with col2:
         hersteller_modell = st.text_input("Hersteller & Modell", placeholder="z. B. Buffet R13")
         system = st.selectbox("System", ["Boehm (Französisch)", "Oehler (Deutsch)"])
-
-    einbaudatum = st.date_input("Einbaudatum", date.today())
+        
+        # Kerf input is now global and extremely easy to set once for the whole order!
+        kerf = st.number_input(
+            "Laser-Kerf (Schwund in mm)", 
+            min_value=0.00, 
+            max_value=2.00, 
+            value=0.15, 
+            step=0.01,
+            help="Der Schnittverlust deines Lasers. Wird automatisch zu allen Polster-Durchmessern dieses Auftrags addiert."
+        )
 
     st.divider()
-    st.subheader("2. Polster-Liste für diesen Kunden")
-    st.markdown("Trage hier alle Polstergrößen für diesen Auftrag ein. Du kannst über das `+` Symbol unten links neue Zeilen hinzufügen.")
+    st.subheader("2. Polster nacheinander hinzufügen")
+    st.markdown("Gib die Maße des Polsters ein und tippe auf den Button unten, um es der Liste für diesen Kunden hinzuzufügen.")
+    
+    # Simple form inputs for one pad at a time (extremely reliable on mobile!)
+    col3, col4, col5 = st.columns(3)
+    with col3:
+        top_soll = st.number_input(
+            "Top Layer Ø (Soll in mm)", 
+            min_value=0.0, 
+            max_value=30.0, 
+            value=12.0, 
+            step=0.1,
+            key="input_top_soll"
+        )
+    with col4:
+        back_soll = st.number_input(
+            "Backplate Ø (Soll in mm)", 
+            min_value=0.0, 
+            max_value=30.0, 
+            value=11.8, 
+            step=0.1,
+            key="input_back_soll"
+        )
+    with col5:
+        dicke = st.selectbox(
+            "Dicke / Stärke (mm)", 
+            [2.0, 2.5, 3.0, 3.5], 
+            index=1,
+            key="input_dicke"
+        )
 
-    # Initialize temporary pads dataframe in session state if not present
-    if "temp_pads" not in st.session_state:
-        st.session_state.temp_pads = pd.DataFrame([
-            {
-                "Top_Soll_mm": 12.0,
-                "Back_Soll_mm": 11.8,
-                "Dicke_mm": 2.5,
-                "Material_Top": "EVA Foam",
-                "Material_Back": "Whiteboard",
-                "Kerf_mm": 0.15
-            }
-        ])
+    col6, col7 = st.columns(2)
+    with col6:
+        material_top = st.selectbox(
+            "Material Top Layer", 
+            ["EVA Foam", "Whiteboard", "Leder", "Kork", "Andere"],
+            key="input_material_top"
+        )
+        if material_top == "Andere":
+            material_top = st.text_input("Anderes Top-Material", placeholder="z. B. Filz", key="custom_material_top")
+    with col7:
+        material_back = st.selectbox(
+            "Material Backplate", 
+            ["Whiteboard", "EVA Foam", "Kork", "Leder", "Andere"],
+            key="input_material_back"
+        )
+        if material_back == "Andere":
+            material_back = st.text_input("Anderes Back-Material", placeholder="z. B. Holz", key="custom_material_back")
 
-    # Display the interactive data editor for the pad list
-    edited_temp_df = st.data_editor(
-        st.session_state.temp_pads,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "Top_Soll_mm": st.column_config.NumberColumn("Top Ø Soll (mm)", min_value=0.0, max_value=30.0, step=0.1, format="%.1f", required=True),
-            "Back_Soll_mm": st.column_config.NumberColumn("Backplate Ø Soll (mm)", min_value=0.0, max_value=30.0, step=0.1, format="%.1f", required=True),
-            "Dicke_mm": st.column_config.SelectboxColumn("Dicke (mm)", options=[2.0, 2.5, 3.0, 3.5], required=True),
-            "Material_Top": st.column_config.SelectboxColumn("Material Top", options=["EVA Foam", "Whiteboard", "Leder", "Kork", "Andere"], required=True),
-            "Material_Back": st.column_config.SelectboxColumn("Material Back", options=["Whiteboard", "EVA Foam", "Kork", "Leder", "Andere"], required=True),
-            "Kerf_mm": st.column_config.NumberColumn("Kerf (mm)", min_value=0.0, max_value=2.0, step=0.01, format="%.2f", required=True)
-        },
-        key="temp_pads_editor"
+    # Real-time calculation preview for the single pad
+    top_laser = round(top_soll + kerf, 2) if top_soll > 0 else 0.0
+    back_laser = round(back_soll + kerf, 2) if back_soll > 0 else 0.0
+
+    st.markdown(
+        f"📏 **Vorschau für dieses Polster:** "
+        f"Laser Top: **`{top_laser} mm`** | Laser Backplate: **`{back_laser} mm`**"
     )
 
-    # Calculate real-time preview of laser dimensions
-    if not edited_temp_df.empty:
-        preview_df = edited_temp_df.copy()
-        preview_df["Top_Soll_mm"] = pd.to_numeric(preview_df["Top_Soll_mm"], errors="coerce").fillna(0.0)
-        preview_df["Back_Soll_mm"] = pd.to_numeric(preview_df["Back_Soll_mm"], errors="coerce").fillna(0.0)
-        preview_df["Kerf_mm"] = pd.to_numeric(preview_df["Kerf_mm"], errors="coerce").fillna(0.0)
-        
-        preview_df["Top_Laser_mm"] = (preview_df["Top_Soll_mm"] + preview_df["Kerf_mm"]).round(2)
-        preview_df["Back_Laser_mm"] = (preview_df["Back_Soll_mm"] + preview_df["Kerf_mm"]).round(2)
-        
-        # Format preview columns for beautiful display
-        st.markdown("🔍 **Vorschau der berechneten Laser-Schnittmaße:**")
-        display_preview = preview_df.copy()
-        display_preview.columns = [
-            "Top Soll (mm)", "Backplate Soll (mm)", "Dicke (mm)", 
-            "Material Top", "Material Back", "Kerf (mm)", 
-            "📐 Top Laser (mm)", "📐 Backplate Laser (mm)"
-        ]
-        st.dataframe(display_preview[["Top Soll (mm)", "📐 Top Laser (mm)", "Backplate Soll (mm)", "📐 Backplate Laser (mm)", "Dicke (mm)"]], use_container_width=True)
-
-    # Save button for the entire list
-    if st.button("💾 Gesamten Auftrag (alle Polster) speichern", type="primary", use_container_width=True):
-        if edited_temp_df.empty:
-            st.error("Bitte füge mindestens ein Polster hinzu.")
+    # Button to add this single pad to the list
+    if st.button("➕ Polster zur Liste hinzufügen", use_container_width=True):
+        if top_soll <= 0 or back_soll <= 0:
+            st.error("Bitte gib gültige Durchmesser für Top Layer und Backplate an.")
         else:
-            df_current = load_data()
-            
-            records_to_add = []
-            for _, row in preview_df.iterrows():
-                records_to_add.append({
-                    "Einbaudatum": einbaudatum,
-                    "Kunde_Besitzer": kunde if kunde else "Unbekannt",
-                    "Hersteller_Modell": hersteller_modell if hersteller_modell else "Unbekannt",
-                    "Instrumenten_Typ": instrument,
-                    "System": system,
-                    "Top_Layer_Soll_mm": row["Top_Soll_mm"],
-                    "Backplate_Soll_mm": row["Back_Soll_mm"],
-                    "Kerf_mm": row["Kerf_mm"],
-                    "Top_Layer_Laser_mm": row["Top_Laser_mm"],
-                    "Backplate_Laser_mm": row["Back_Laser_mm"],
-                    "Dicke_mm": float(row["Dicke_mm"]),
-                    "Material_Top": row["Material_Top"],
-                    "Material_Back": row["Material_Back"]
-                })
-            
-            df_new = pd.concat([df_current, pd.DataFrame(records_to_add)], ignore_index=True)
-            save_data(df_new)
-            
-            # Clear temporary state so next order is fresh
-            st.session_state.temp_pads = pd.DataFrame([
-                {
-                    "Top_Soll_mm": 12.0,
-                    "Back_Soll_mm": 11.8,
-                    "Dicke_mm": 2.5,
-                    "Material_Top": "EVA Foam",
-                    "Material_Back": "Whiteboard",
-                    "Kerf_mm": 0.15
-                }
-            ])
-            
-            st.success(f"✅ {len(records_to_add)} Polster erfolgreich für {kunde if kunde else 'Unbekannt'} gespeichert!")
-            st.rerun()
+            new_pad = {
+                "Top_Soll_mm": top_soll,
+                "Back_Soll_mm": back_soll,
+                "Dicke_mm": float(dicke),
+                "Material_Top": material_top,
+                "Material_Back": material_back,
+                "Top_Laser_mm": top_laser,
+                "Back_Laser_mm": back_laser
+            }
+            st.session_state.current_order_pads.append(new_pad)
+            st.toast(f"Polster {top_soll}mm / {back_soll}mm hinzugefügt!", icon="✅")
 
-# --- SECTION 2: VIEW AND EDIT DATA ---
-st.header("📋 Gespeicherte Polster-Daten")
+    # --- SECTION 1B: CURRENT ORDER LIST ---
+    if st.session_state.current_order_pads:
+        st.divider()
+        st.subheader(f"📋 Hinzugefügte Polster für diesen Auftrag ({len(st.session_state.current_order_pads)})")
+        
+        # Display as a clean, read-only table for review
+        order_df = pd.DataFrame(st.session_state.current_order_pads)
+        # Rename columns for user-friendly preview
+        display_order_df = order_df.rename(columns={
+            "Top_Soll_mm": "Top Ø Soll (mm)",
+            "Back_Soll_mm": "Backplate Ø Soll (mm)",
+            "Dicke_mm": "Dicke (mm)",
+            "Material_Top": "Material Top",
+            "Material_Back": "Material Back",
+            "Top_Laser_mm": "📐 Top Laser (mm)",
+            "Back_Laser_mm": "📐 Backplate Laser (mm)"
+        })
+        st.dataframe(display_order_df, use_container_width=True)
+
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🗑️ Liste leeren", type="secondary", use_container_width=True):
+                st.session_state.current_order_pads = []
+                st.rerun()
+        with col_btn2:
+            if st.button("💾 Gesamten Auftrag speichern", type="primary", use_container_width=True):
+                df_current = load_data()
+                
+                records_to_add = []
+                for pad in st.session_state.current_order_pads:
+                    records_to_add.append({
+                        "Einbaudatum": einbaudatum,
+                        "Kunde_Besitzer": kunde if kunde else "Unbekannt",
+                        "Hersteller_Modell": hersteller_modell if hersteller_modell else "Unbekannt",
+                        "Instrumenten_Typ": instrument,
+                        "System": system,
+                        "Top_Layer_Soll_mm": pad["Top_Soll_mm"],
+                        "Backplate_Soll_mm": pad["Back_Soll_mm"],
+                        "Kerf_mm": kerf,
+                        "Top_Layer_Laser_mm": pad["Top_Laser_mm"],
+                        "Backplate_Laser_mm": pad["Back_Laser_mm"],
+                        "Dicke_mm": pad["Dicke_mm"],
+                        "Material_Top": pad["Material_Top"],
+                        "Material_Back": pad["Material_Back"]
+                    })
+                
+                df_new = pd.concat([df_current, pd.DataFrame(records_to_add)], ignore_index=True)
+                save_data(df_new)
+                
+                # Clear order list
+                st.session_state.current_order_pads = []
+                st.success(f"🎉 Erfolgreich {len(records_to_add)} Polster für {kunde if kunde else 'Unbekannt'} gespeichert!")
+                st.rerun()
+
+# --- SECTION 2: VIEW AND EDIT DATABASE ---
+st.header("🗄️ Gesamte Polster-Datenbank")
 
 df_data = load_data()
 
 if df_data.empty:
-    st.info("Noch keine Daten vorhanden. Nutze das obige Formular, um deinen ersten Eintrag hinzuzufügen.")
+    st.info("Noch keine Daten in der Datenbank vorhanden. Nutze das Formular oben, um deinen ersten Auftrag zu speichern.")
 else:
     # Search and Filter options
     st.markdown("### 🔍 Filtern & Suchen")
@@ -201,14 +248,14 @@ else:
     if instrument_filter:
         filtered_df = filtered_df[filtered_df["Instrumenten_Typ"].isin(instrument_filter)]
 
-    # Dynamic Data Editor (directly edit and delete rows!)
-    st.markdown("💡 *Du kannst Werte direkt in der Tabelle antippen, um sie zu editieren. Um eine Zeile zu löschen, markiere sie links und drücke 'Entf' (oder nutze das Mülleimer-Symbol).*")
+    # Dynamic Data Editor for managing historical data
+    st.markdown("💡 *Du kannst Werte in der Datenbank-Tabelle direkt antippen, um sie nachträglich zu editieren. Um eine Zeile zu löschen, markiere sie links und drücke 'Entf' (oder nutze das Mülleimer-Symbol). Vergiss nicht, danach auf 'Änderungen in Tabelle speichern' zu klicken.*")
     
     edited_df = st.data_editor(
         filtered_df,
         num_rows="dynamic",
         use_container_width=True,
-        key="data_editor_widget"
+        key="database_editor_widget"
     )
 
     # Save edits button
@@ -221,14 +268,14 @@ else:
             final_df = pd.concat([non_filtered_df, edited_df], ignore_index=True)
             save_data(final_df)
             
-        st.success("🎉 Änderungen erfolgreich übernommen!")
+        st.success("🎉 Änderungen erfolgreich in der Datenbank übernommen!")
         st.rerun()
 
     # --- CSV Export ---
     st.divider()
     csv = df_data.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 Alle Daten als CSV herunterladen (Backup)",
+        label="📥 Gesamte Datenbank als CSV herunterladen (Backup)",
         data=csv,
         file_name="klarinetten_polster_backup.csv",
         mime="text/csv",
